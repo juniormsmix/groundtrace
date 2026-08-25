@@ -966,29 +966,72 @@ AIRPORTS.forEach(a=>{
 });
 $('apt').addEventListener('change',()=>{ $('customLL').style.display=$('apt').value==='CUSTOM'?'flex':'none'; recompute(); });
 
-// --- any-ICAO lookup (NOAA AviationWeather, free, worldwide) ---
+// --- any-ICAO lookup: AviationWeather first, OurAirports database fallback ---
+let AIRPORT_DB=null;
+function parseCsvLine(line){
+  const out=[];let cur='',q=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(q){ if(ch==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+    else{ if(ch==='"')q=true; else if(ch===','){out.push(cur);cur='';} else cur+=ch; }
+  }
+  out.push(cur); return out;
+}
+async function loadAirportDb(st){
+  if(AIRPORT_DB)return AIRPORT_DB;
+  st.textContent='Downloading airport database (one time, ~13 MB)\u2026';
+  const r=await fetch('https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv');
+  if(!r.ok)throw new Error('db http '+r.status);
+  const text=await r.text();
+  const lines=text.split('\n');
+  const head=parseCsvLine(lines[0]);
+  const iI=head.indexOf('ident'), iN=head.indexOf('name'),
+        iLa=head.indexOf('latitude_deg'), iLo=head.indexOf('longitude_deg');
+  const db=new Map();
+  for(let i=1;i<lines.length;i++){
+    if(!lines[i])continue;
+    const c=parseCsvLine(lines[i]);
+    if(c[iI])db.set(c[iI].toUpperCase(),{lat:parseFloat(c[iLa]),lon:parseFloat(c[iLo]),name:c[iN]});
+  }
+  AIRPORT_DB=db;
+  return db;
+}
 async function lookupIcao(){
   const id=($('icao').value||'').trim().toUpperCase();
   const st=$('icaoStatus');
-  if(!/^[A-Z0-9]{4}$/.test(id)){st.textContent='Enter a 4-character ICAO ident.';return;}
-  st.textContent='Looking up '+id+'…';
-  try{
+  if(!/^[A-Z0-9]{3,4}$/.test(id)){st.textContent='Enter an ICAO ident (3\u20134 characters).';return;}
+  st.textContent='Looking up '+id+'\u2026';
+  let found=null, netErr=false;
+  try{                                    // 1) NOAA AviationWeather (fast when reachable)
     const r=await fetch('https://aviationweather.gov/api/data/airport?ids='+id+'&format=json');
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const data=await r.json();
-    const a=Array.isArray(data)?data[0]:null;
-    const lat=a&&parseFloat(a.lat), lon=a&&parseFloat(a.lon);
-    if(!a||!isFinite(lat)||!isFinite(lon))throw new Error('not found');
-    window._lookup={id,lat,lon,name:a.name||id};
+    if(r.ok){
+      const data=await r.json();
+      const a=Array.isArray(data)?data[0]:(data&&data.lat!==undefined?data:null);
+      const lat=a&&parseFloat(a.lat), lon=a&&parseFloat(a.lon);
+      if(a&&isFinite(lat)&&isFinite(lon))found={lat,lon,name:a.name||id};
+    }
+  }catch(err){netErr=true;}
+  if(!found){                             // 2) OurAirports full database (86k airports)
+    try{
+      const db=await loadAirportDb(st);
+      const a=db.get(id);
+      if(a&&isFinite(a.lat)&&isFinite(a.lon))found={lat:a.lat,lon:a.lon,name:a.name};
+      netErr=false;
+    }catch(err){netErr=true;}
+  }
+  if(found){
+    window._lookup={id,lat:found.lat,lon:found.lon,name:found.name};
     let opt=document.getElementById('lookupOpt');
     if(!opt){opt=document.createElement('option');opt.id='lookupOpt';opt.value='LOOKUP';$('apt').prepend(opt);}
-    opt.textContent=id+' — '+(a.name||'looked up');
+    opt.textContent=id+' \u2014 '+(found.name||'looked up');
     $('apt').value='LOOKUP';
     $('customLL').style.display='none';
-    st.textContent='✓ '+id+' ('+lat.toFixed(4)+', '+lon.toFixed(4)+')'+(a.name?' — '+a.name:'');
+    st.textContent='\u2713 '+id+' ('+found.lat.toFixed(4)+', '+found.lon.toFixed(4)+')'+(found.name?' \u2014 '+found.name:'');
     recompute();
-  }catch(err){
-    st.textContent='Couldn\u2019t find '+id+'. Check the ident, or use Custom coordinates. (Lookup needs internet; it works on your hosted page.)';
+  }else{
+    st.textContent=netErr
+      ? 'Airport lookup couldn\u2019t reach the network from this page \u2014 try on your hosted site, or use Custom coordinates.'
+      : id+' isn\u2019t in the airport databases \u2014 double-check the ICAO ident, or use Custom coordinates.';
   }
 }
 $('icaoGo').addEventListener('click',lookupIcao);
