@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GroundTrace — Browser Prototype</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root{
     --bg:#12181f; --panel:#1a222c; --panel2:#212b37; --line:#2e3b4a;
@@ -165,6 +166,7 @@
     <div><div class="k">WPTS</div><div class="v amb" id="sWpt">—</div></div>
   </div>
   <div class="legend"><i></i>Shape segments &nbsp;&nbsp;<i class="t"></i>Transit (pen-up) legs</div>
+  <button id="recenter" style="position:absolute;z-index:1000;top:76px;left:12px;background:#0d1319ee;border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 11px;font:600 12px system-ui;cursor:pointer">⌖ Recenter</button>
   <div id="tilenote">Map tiles couldn’t load in this environment — the route is still drawn to true geographic scale.</div>
 </div>
 </main>
@@ -535,7 +537,14 @@ function drawMap(geo){
   shapeLayer.addTo(map);
   const bpts=geo.map(p=>[p.lat,p.lon]);
   if(b&&b.id!=='CUSTOM')bpts.push([b.lat,b.lon]);
-  map.fitBounds(L.latLngBounds(bpts).pad(0.25));
+  const nb=L.latLngBounds(bpts).pad(0.25);
+  window._bounds=nb;
+  // don't yank the view on every keystroke — refit only when the route
+  // leaves the current viewport, or on the first draw
+  if(window._firstFit===undefined || !map.getBounds().contains(nb)){
+    map.fitBounds(nb);
+    window._firstFit=false;
+  }
 }
 
 /* ---------- init ---------- */
@@ -578,6 +587,14 @@ $('maxw').addEventListener('input',()=>{$('maxwv').textContent=$('maxw').value;r
 
 $('expGpx').onclick=()=>{ if(window._geo)download('groundtrace.gpx','application/gpx+xml',makeGpx(window._geo,'GroundTrace '+($('txt').value||'shape'))); };
 $('expFpl').onclick=()=>{ if(window._geo)download('groundtrace.fpl','application/xml',makeFpl(window._geo,'GROUNDTRACE')); };
+$('recenter').onclick=()=>{ if(window._bounds)map.fitBounds(window._bounds); };
+
+// Leaflet measures its container at init; if layout settles late (fonts,
+// mobile stacking, Pages CDN css timing) tiles render offset/partial until
+// the size is invalidated.
+setTimeout(()=>map.invalidateSize(),250);
+window.addEventListener('resize',()=>map.invalidateSize());
+window.addEventListener('load',()=>map.invalidateSize());
 
 recompute();
 </script>
