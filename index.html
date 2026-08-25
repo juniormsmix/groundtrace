@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GroundTrace — Browser Prototype</title>
+<style>
+  :root{
+    --bg:#12181f; --panel:#1a222c; --panel2:#212b37; --line:#2e3b4a;
+    --ink:#e8edf2; --muted:#8ca0b3; --grn:#5fd97e; --amb:#f0b543; --red:#ef6a5a;
+    --mono:ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  header{display:flex;align-items:baseline;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:17px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  header h1 b{color:var(--grn)}
+  header span{color:var(--muted);font-size:12px;letter-spacing:.06em}
+  main{flex:1;display:flex;min-height:0}
+  /* ---------- sidebar ---------- */
+  aside{width:320px;min-width:320px;overflow-y:auto;background:var(--panel);border-right:1px solid var(--line);padding:14px 16px 30px;display:flex;flex-direction:column;gap:16px}
+  .sec>.lab{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  .tabs{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .tabs button{flex:1;background:transparent;border:0;color:var(--muted);padding:8px 0;font:inherit;font-size:13px;cursor:pointer}
+  .tabs button.on{background:var(--panel2);color:var(--grn);font-weight:600}
+  input[type=text],input[type=number],select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:8px 10px;font:inherit}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--grn);outline-offset:1px}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  .field{margin-bottom:9px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .drop{border:1.5px dashed var(--line);border-radius:9px;padding:16px 12px;text-align:center;color:var(--muted);cursor:pointer;font-size:13px}
+  .drop.hover{border-color:var(--grn);color:var(--grn)}
+  .drop b{color:var(--ink)}
+  /* solver rows */
+  .solve{display:grid;grid-template-columns:22px 1fr 96px;gap:6px 8px;align-items:center}
+  .solve .unit{position:relative}
+  .solve .unit input{padding-right:34px}
+  .solve .unit em{position:absolute;right:9px;top:50%;transform:translateY(-50%);font-style:normal;font-size:11px;color:var(--muted)}
+  .solve input[type=radio]{accent-color:var(--grn);width:15px;height:15px}
+  .solve .name{font-size:13px}
+  .solve .locked input[type=number]{color:var(--grn);border-color:#2f4a38;background:#16211a}
+  .btn{display:block;width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:9px;font:inherit;font-weight:600;cursor:pointer;margin-bottom:7px}
+  .btn:hover{border-color:var(--grn)}
+  .btn.primary{background:#1d3a28;border-color:#2f5c3d;color:var(--grn)}
+  .warn{color:var(--amb);font-size:12px;display:none;margin-top:2px}
+  /* ---------- map ---------- */
+  .maparea{flex:1;position:relative;min-width:0}
+  #map{position:absolute;inset:0;background:
+      linear-gradient(var(--line) 1px,transparent 1px) 0 0/48px 48px,
+      linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/48px 48px,var(--bg)}
+  /* data strip — avionics readout */
+  .strip{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:0;background:#0d1319ee;border:1px solid var(--line);border-radius:9px;overflow:hidden;box-shadow:0 4px 14px #0008}
+  .strip div{padding:7px 16px;text-align:center;border-right:1px solid var(--line)}
+  .strip div:last-child{border-right:0}
+  .strip .k{font-size:9.5px;letter-spacing:.16em;color:var(--muted)}
+  .strip .v{font:600 17px var(--mono);color:var(--grn);white-space:nowrap}
+  .strip .v.amb{color:var(--amb)}
+  .legend{position:absolute;z-index:1000;bottom:14px;left:12px;background:#0d1319ee;border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:22px;height:0;border-top:3px solid var(--grn);vertical-align:middle;margin-right:6px}
+  .legend i.t{border-top:3px dashed var(--amb)}
+  #tilenote{position:absolute;z-index:1000;bottom:14px;right:12px;background:#0d1319ee;border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--amb);display:none;max-width:260px}
+  @media (max-width:760px){
+    main{flex-direction:column;overflow:auto}
+    aside{width:100%;min-width:0;border-right:0;border-bottom:1px solid var(--line)}
+    .maparea{height:60vh;flex:none}
+    body{overflow:auto;height:auto}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ground<b>Trace</b></h1>
+  <span>browser prototype · draw the sky</span>
+</header>
+<main>
+<aside>
+
+  <div class="sec">
+    <div class="lab">Shape source</div>
+    <div class="tabs">
+      <button id="tabText" class="on">Type text</button>
+      <button id="tabDxf">Upload DXF</button>
+    </div>
+    <div id="paneText" style="margin-top:10px">
+      <div class="field">
+        <input type="text" id="txt" value="HI ATC" maxlength="24" autocomplete="off" spellcheck="false">
+        <div class="hint">A–Z, 0–9, space, hyphen. Rendered in a single-stroke font.</div>
+      </div>
+    </div>
+    <div id="paneDxf" style="display:none;margin-top:10px">
+      <div class="drop" id="drop"><b>Drop a .dxf here</b><br>or click to browse</div>
+      <input type="file" id="file" accept=".dxf" style="display:none">
+      <div class="hint" id="dxfinfo">Supports LINE, LWPOLYLINE, POLYLINE, ARC, CIRCLE, SPLINE (approx. through fit/control points).</div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="lab">Anchor</div>
+    <div class="field">
+      <select id="apt"></select>
+    </div>
+    <div class="row field" id="customLL" style="display:none">
+      <div><label for="lat">Latitude</label><input type="number" id="lat" step="0.0001" value="33.6636"></div>
+      <div><label for="lon">Longitude</label><input type="number" id="lon" step="0.0001" value="-101.8228"></div>
+    </div>
+    <div class="row field">
+      <div><label for="offd">Offset distance (nm)</label><input type="number" id="offd" value="0" min="0" step="1"></div>
+      <div><label for="offb">Direction (° true)</label><input type="number" id="offb" value="0" min="0" max="360" step="5"></div>
+    </div>
+    <div class="hint" style="margin:-4px 0 8px">Displaces the anchor point away from the airport — e.g. 15 nm on 270° puts the shape 15 nm west of the field.</div>
+    <div class="field">
+      <label for="amode">Anchor mode</label>
+      <select id="amode">
+        <option value="start">Path starts at anchor (first waypoint on field)</option>
+        <option value="center">Shape centered on anchor</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="rot">Rotation (° clockwise from north-up)</label>
+      <input type="number" id="rot" value="0" step="5">
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="lab">Solver — pick the free variable</div>
+    <div class="hint" style="margin:-2px 0 8px">Set two, GroundTrace computes the one marked ◉.</div>
+    <div class="solve">
+      <input type="radio" name="free" id="fSize" value="size">
+      <label class="name" for="fSize">Shape width</label>
+      <span class="unit"><input type="number" id="size" value="8" min="0.5" step="0.5"><em>nm</em></span>
+      <input type="radio" name="free" id="fSpd" value="speed">
+      <label class="name" for="fSpd">Groundspeed</label>
+      <span class="unit"><input type="number" id="speed" value="105" min="20" step="5"><em>kt</em></span>
+      <input type="radio" name="free" id="fDur" value="dur" checked>
+      <label class="name" for="fDur">Duration</label>
+      <span class="unit"><input type="number" id="dur" value="60" min="5" step="5"><em>min</em></span>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="lab">Waypoints</div>
+    <div class="field">
+      <label for="maxw">Max waypoints: <b id="maxwv" style="color:var(--grn)">80</b></label>
+      <input type="range" id="maxw" min="10" max="200" value="80" style="width:100%;accent-color:var(--grn)">
+      <div class="warn" id="fplwarn">⚠ Garmin .fpl route points are typically capped near 99 — reduce for panel GPS import.</div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="lab">Export</div>
+    <button class="btn primary" id="expGpx">Download GPX (ForeFlight)</button>
+    <button class="btn" id="expFpl">Download FPL (Garmin)</button>
+    <div class="hint">Import the GPX into ForeFlight via AirDrop / Files, or the .fpl onto a Garmin datacard / Garmin Pilot.</div>
+  </div>
+
+</aside>
+<div class="maparea">
+  <div id="map"></div>
+  <div class="strip">
+    <div><div class="k">DIST</div><div class="v" id="sDist">—</div></div>
+    <div><div class="k">GS</div><div class="v" id="sGs">—</div></div>
+    <div><div class="k">ETE</div><div class="v" id="sEte">—</div></div>
+    <div><div class="k">WPTS</div><div class="v amb" id="sWpt">—</div></div>
+  </div>
+  <div class="legend"><i></i>Shape segments &nbsp;&nbsp;<i class="t"></i>Transit (pen-up) legs</div>
+  <div id="tilenote">Map tiles couldn’t load in this environment — the route is still drawn to true geographic scale.</div>
+</div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   1. SINGLE-STROKE FONT  (each glyph: width + array of polylines,
+      coords x:0..4, y:0..6, y-up)
+   ============================================================ */
+const FONT = {
+ 'A':{w:4,s:[[[0,0],[2,6],[4,0]],[[0.8,2.2],[3.2,2.2]]]},
+ 'B':{w:4,s:[[[0,0],[0,6],[3,6],[4,5],[4,3.6],[3,3],[0,3]],[[3,3],[4,2.4],[4,1],[3,0],[0,0]]]},
+ 'C':{w:4,s:[[[4,1],[3,0],[1,0],[0,1],[0,5],[1,6],[3,6],[4,5]]]},
+ 'D':{w:4,s:[[[0,0],[0,6],[2.5,6],[4,4.5],[4,1.5],[2.5,0],[0,0]]]},
+ 'E':{w:4,s:[[[4,0],[0,0],[0,6],[4,6]],[[0,3],[3,3]]]},
+ 'F':{w:4,s:[[[0,0],[0,6],[4,6]],[[0,3],[3,3]]]},
+ 'G':{w:4,s:[[[4,5],[3,6],[1,6],[0,5],[0,1],[1,0],[3,0],[4,1],[4,3],[2,3]]]},
+ 'H':{w:4,s:[[[0,0],[0,6]],[[4,0],[4,6]],[[0,3],[4,3]]]},
+ 'I':{w:2,s:[[[0,6],[2,6]],[[1,6],[1,0]],[[0,0],[2,0]]]},
+ 'J':{w:4,s:[[[0,1],[1,0],[2,0],[3,1],[3,6],[1.6,6]]]},
+ 'K':{w:4,s:[[[0,0],[0,6]],[[4,6],[0,2.5]],[[1.6,3.6],[4,0]]]},
+ 'L':{w:4,s:[[[0,6],[0,0],[4,0]]]},
+ 'M':{w:4,s:[[[0,0],[0,6],[2,2.6],[4,6],[4,0]]]},
+ 'N':{w:4,s:[[[0,0],[0,6],[4,0],[4,6]]]},
+ 'O':{w:4,s:[[[1,0],[0,1],[0,5],[1,6],[3,6],[4,5],[4,1],[3,0],[1,0]]]},
+ 'P':{w:4,s:[[[0,0],[0,6],[3,6],[4,5],[4,3.8],[3,3],[0,3]]]},
+ 'Q':{w:4,s:[[[1,0],[0,1],[0,5],[1,6],[3,6],[4,5],[4,1],[3,0],[1,0]],[[2.6,1.4],[4.3,-0.4]]]},
+ 'R':{w:4,s:[[[0,0],[0,6],[3,6],[4,5],[4,3.8],[3,3],[0,3]],[[2,3],[4,0]]]},
+ 'S':{w:4,s:[[[4,5],[3,6],[1,6],[0,5],[0,4.2],[1,3.3],[3,2.9],[4,2],[4,1],[3,0],[1,0],[0,1]]]},
+ 'T':{w:4,s:[[[0,6],[4,6]],[[2,6],[2,0]]]},
+ 'U':{w:4,s:[[[0,6],[0,1],[1,0],[3,0],[4,1],[4,6]]]},
+ 'V':{w:4,s:[[[0,6],[2,0],[4,6]]]},
+ 'W':{w:4,s:[[[0,6],[1,0],[2,4],[3,0],[4,6]]]},
+ 'X':{w:4,s:[[[0,0],[4,6]],[[0,6],[4,0]]]},
+ 'Y':{w:4,s:[[[0,6],[2,3.1],[4,6]],[[2,3.1],[2,0]]]},
+ 'Z':{w:4,s:[[[0,6],[4,6],[0,0],[4,0]]]},
+ '0':{w:4,s:[[[1,0],[0,1],[0,5],[1,6],[3,6],[4,5],[4,1],[3,0],[1,0]],[[0.8,1],[3.2,5]]]},
+ '1':{w:3,s:[[[0.6,4.8],[1.7,6],[1.7,0]],[[0.6,0],[2.8,0]]]},
+ '2':{w:4,s:[[[0,5],[1,6],[3,6],[4,5],[4,4],[0,0],[4,0]]]},
+ '3':{w:4,s:[[[0,5],[1,6],[3,6],[4,5],[4,4.1],[3,3.2],[1.4,3.2]],[[3,3.2],[4,2.3],[4,1],[3,0],[1,0],[0,1]]]},
+ '4':{w:4,s:[[[3,0],[3,6],[0,2],[4,2]]]},
+ '5':{w:4,s:[[[4,6],[0,6],[0,3.4],[2.8,3.4],[4,2.4],[4,1],[3,0],[1,0],[0,1]]]},
+ '6':{w:4,s:[[[3.6,6],[1.4,6],[0,4.6],[0,1],[1,0],[3,0],[4,1],[4,2],[3,3],[0,3]]]},
+ '7':{w:4,s:[[[0,6],[4,6],[1.4,0]]]},
+ '8':{w:4,s:[[[1,3.1],[0,4],[0,5],[1,6],[3,6],[4,5],[4,4],[3,3.1],[1,3.1],[0,2.2],[0,1],[1,0],[3,0],[4,1],[4,2.2],[3,3.1]]]},
+ '9':{w:4,s:[[[0.4,0],[2.6,0],[4,1.4],[4,5],[3,6],[1,6],[0,5],[0,4],[1,3],[4,3]]]},
+ '-':{w:3,s:[[[0,3],[3,3]]]},
+ ' ':{w:3,s:[]},
+};
+const ADV_GAP = 1.3;
+
+function textToStrokes(str){
+  const strokes=[]; let x=0;
+  for(const raw of str.toUpperCase()){
+    const g=FONT[raw]; if(!g) continue;
+    for(const s of g.s) strokes.push(s.map(([px,py])=>[px+x,py]));
+    x += g.w + ADV_GAP;
+  }
+  return strokes;
+}
+
+/* ============================================================
+   2. DXF PARSER → strokes  (LINE, LWPOLYLINE, POLYLINE/VERTEX,
+      ARC, CIRCLE, SPLINE approx)
+   ============================================================ */
+function parseDxf(text){
+  const lines = text.split(/\r\n|\r|\n/);
+  const pairs=[];
+  for(let i=0;i+1<lines.length;i+=2)
+    pairs.push([parseInt(lines[i].trim(),10), lines[i+1].trim()]);
+  const strokes=[]; let i=0;
+  const num=v=>parseFloat(v);
+  function arcPts(cx,cy,r,a0,a1){
+    if(a1<=a0)a1+=360;
+    const n=Math.max(8,Math.ceil((a1-a0)/5)),out=[];
+    for(let k=0;k<=n;k++){
+      const a=(a0+(a1-a0)*k/n)*Math.PI/180;
+      out.push([cx+r*Math.cos(a),cy+r*Math.sin(a)]);
+    }
+    return out;
+  }
+  while(i<pairs.length){
+    const [c,v]=pairs[i];
+    if(c!==0){i++;continue;}
+    const ent=v; i++;
+    // gather this entity's codes until next code-0
+    const e={pts10:[],pts11:[]};
+    while(i<pairs.length && pairs[i][0]!==0){
+      const [cc,vv]=pairs[i];
+      if(cc===10)e.pts10.push([num(vv),null]);
+      else if(cc===20){const p=e.pts10[e.pts10.length-1];if(p&&p[1]===null)p[1]=num(vv);}
+      else if(cc===11)e.pts11.push([num(vv),null]);
+      else if(cc===21){const p=e.pts11[e.pts11.length-1];if(p&&p[1]===null)p[1]=num(vv);}
+      else e[cc]=num(vv)||vv;
+      i++;
+    }
+    const p10=e.pts10.filter(p=>p[1]!==null), p11=e.pts11.filter(p=>p[1]!==null);
+    if(ent==='LINE' && p10.length&&p11.length) strokes.push([p10[0],p11[0]]);
+    else if(ent==='LWPOLYLINE' && p10.length>1){
+      const closed=(e[70]&1)===1, s=p10.slice();
+      if(closed)s.push(s[0]); strokes.push(s);
+    }
+    else if(ent==='POLYLINE'){
+      // vertices follow as separate VERTEX entities
+      const s=[];
+      while(i<pairs.length){
+        if(pairs[i][0]===0 && pairs[i][1]==='VERTEX'){
+          i++; let vx=null,vy=null;
+          while(i<pairs.length&&pairs[i][0]!==0){
+            if(pairs[i][0]===10)vx=num(pairs[i][1]);
+            if(pairs[i][0]===20)vy=num(pairs[i][1]);
+            i++;
+          }
+          if(vx!==null&&vy!==null)s.push([vx,vy]);
+        } else if(pairs[i][0]===0 && pairs[i][1]==='SEQEND'){ i++; break; }
+        else break;
+      }
+      if(s.length>1){ if((e[70]&1)===1)s.push(s[0]); strokes.push(s); }
+    }
+    else if(ent==='ARC' && p10.length) strokes.push(arcPts(p10[0][0],p10[0][1],e[40],e[50]??0,e[51]??360));
+    else if(ent==='CIRCLE' && p10.length) strokes.push(arcPts(p10[0][0],p10[0][1],e[40],0,360));
+    else if(ent==='SPLINE'){
+      const pts = p11.length>1 ? p11 : p10;   // prefer fit points
+      if(pts.length>1) strokes.push(pts);
+    }
+  }
+  return strokes;
+}
+
+/* ============================================================
+   3. STROKE ORDERING (greedy nearest-neighbor, strokes reversible)
+      → flat point list with transit flags
+   ============================================================ */
+function d2(a,b){const dx=a[0]-b[0],dy=a[1]-b[1];return dx*dx+dy*dy;}
+function orderStrokes(strokes){
+  if(!strokes.length)return [];
+  const rem=strokes.map(s=>s.slice()); const out=[rem.shift()];
+  while(rem.length){
+    const cur=out[out.length-1][out[out.length-1].length-1];
+    let bi=0,brev=false,bd=Infinity;
+    rem.forEach((s,idx)=>{
+      const dS=d2(cur,s[0]), dE=d2(cur,s[s.length-1]);
+      if(dS<bd){bd=dS;bi=idx;brev=false;}
+      if(dE<bd){bd=dE;bi=idx;brev=true;}
+    });
+    const s=rem.splice(bi,1)[0]; if(brev)s.reverse(); out.push(s);
+  }
+  return out;
+}
+function flatten(strokes){
+  const pts=[];
+  for(const s of strokes) s.forEach((p,j)=>pts.push({x:p[0],y:p[1],transit:j===0&&pts.length>0}));
+  return pts;
+}
+
+/* ============================================================
+   4. SIMPLIFY (RDP per continuous run) to ≤ maxN points
+   ============================================================ */
+function rdp(pts,eps){
+  if(pts.length<3)return pts;
+  const keep=new Array(pts.length).fill(false);
+  keep[0]=keep[pts.length-1]=true;
+  const stack=[[0,pts.length-1]];
+  while(stack.length){
+    const [a,b]=stack.pop(); let mi=-1,md=-1;
+    const A=pts[a],B=pts[b];
+    const dx=B.x-A.x,dy=B.y-A.y,L=Math.hypot(dx,dy)||1e-12;
+    for(let k=a+1;k<b;k++){
+      const dist=Math.abs(dy*(pts[k].x-A.x)-dx*(pts[k].y-A.y))/L;
+      if(dist>md){md=dist;mi=k;}
+    }
+    if(md>eps){keep[mi]=true;stack.push([a,mi],[mi,b]);}
+  }
+  return pts.filter((_,k)=>keep[k]);
+}
+function simplify(pts,maxN){
+  if(pts.length<=maxN)return pts;
+  // split into continuous runs at transit boundaries
+  const runs=[];let cur=[];
+  for(const p of pts){
+    if(p.transit&&cur.length){runs.push(cur);cur=[];}
+    cur.push(p);
+  }
+  if(cur.length)runs.push(cur);
+  let lo=0,hi=1,res=pts;                       // eps in normalized units
+  const total=r=>r.reduce((n,x)=>n+x.length,0);
+  for(let it=0;it<24;it++){
+    const eps=(lo+hi)/2;
+    const rr=runs.map(r=>rdp(r,eps));
+    if(total(rr)>maxN)lo=eps;else{hi=eps;res=[].concat(...rr);}
+  }
+  // restore transit flags on run starts
+  let idx=0;
+  const out=res.map((p,k)=>({...p}));
+  out.forEach((p,k)=>{p.transit = k>0 && p.transit===true;});
+  return out.length<=maxN?out:out.slice(0,maxN);
+}
+
+/* ============================================================
+   5. GEOMETRY → GEOGRAPHY
+   ============================================================ */
+function shapeMetrics(pts){
+  let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9,len=0;
+  pts.forEach((p,k)=>{
+    minx=Math.min(minx,p.x);maxx=Math.max(maxx,p.x);
+    miny=Math.min(miny,p.y);maxy=Math.max(maxy,p.y);
+    if(k>0)len+=Math.hypot(p.x-pts[k-1].x,p.y-pts[k-1].y);
+  });
+  return {w:maxx-minx||1e-9,h:maxy-miny||1e-9,minx,maxx,miny,maxy,len};
+}
+function toGeo(pts,anchorLat,anchorLon,sizeNm,rotDeg,mode){
+  const th=-rotDeg*Math.PI/180, c=Math.cos(th), s=Math.sin(th);
+  const rot=pts.map(p=>({x:p.x*c-p.y*s, y:p.x*s+p.y*c, transit:p.transit}));
+  const m=shapeMetrics(rot);
+  const k=sizeNm/m.w;                              // nm per unit
+  const cx=(m.minx+m.maxx)/2, cy=(m.miny+m.maxy)/2;
+  let ox,oy;
+  if(mode==='center'){ox=cx;oy=cy;}
+  else {ox=rot[0].x;oy=rot[0].y;}                  // start-at-anchor
+  const cosLat=Math.cos(anchorLat*Math.PI/180);
+  return rot.map(p=>({
+    lat: anchorLat + (p.y-oy)*k/60,
+    lon: anchorLon + (p.x-ox)*k/(60*cosLat),
+    transit:p.transit
+  }));
+}
+function geoDistNm(a,b){                            // equirectangular, fine at this scale
+  const dlat=(b.lat-a.lat)*60;
+  const dlon=(b.lon-a.lon)*60*Math.cos((a.lat+b.lat)/2*Math.PI/180);
+  return Math.hypot(dlat,dlon);
+}
+
+/* ============================================================
+   6. EXPORTERS
+   ============================================================ */
+function fmt(n,d){return n.toFixed(d);}
+function makeGpx(geo,name){
+  let x='<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="GroundTrace" xmlns="http://www.topografix.com/GPX/1/1">\n <rte>\n  <name>'+name+'</name>\n';
+  geo.forEach((p,i)=>{x+=`  <rtept lat="${fmt(p.lat,6)}" lon="${fmt(p.lon,6)}"><name>GT${String(i+1).padStart(3,'0')}</name></rtept>\n`;});
+  return x+' </rte>\n</gpx>\n';
+}
+function makeFpl(geo,name){
+  let w='',r='';
+  geo.forEach((p,i)=>{
+    const id='GT'+String(i+1).padStart(3,'0');
+    w+=`  <waypoint><identifier>${id}</identifier><type>USER WAYPOINT</type><country-code></country-code><lat>${fmt(p.lat,6)}</lat><lon>${fmt(p.lon,6)}</lon></waypoint>\n`;
+    r+=`  <route-point><waypoint-identifier>${id}</waypoint-identifier><waypoint-type>USER WAYPOINT</waypoint-type><waypoint-country-code></waypoint-country-code></route-point>\n`;
+  });
+  return '<?xml version="1.0" encoding="utf-8"?>\n<flight-plan xmlns="http://www8.garmin.com/xmlschemas/FlightPlan/v1">\n <created>'+new Date().toISOString()+'</created>\n <waypoint-table>\n'+w+' </waypoint-table>\n <route>\n  <route-name>'+name.slice(0,25)+'</route-name>\n  <flight-plan-index>1</flight-plan-index>\n'+r+' </route>\n</flight-plan>\n';
+}
+function download(fname,mime,content){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+  a.download=fname;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+
+/* ============================================================
+   7. APP STATE + UI
+   ============================================================ */
+const AIRPORTS=[
+ ['KLBB','Lubbock Preston Smith',33.6636,-101.8228],
+ ['KDFW','Dallas/Fort Worth Intl',32.8998,-97.0403],
+ ['KDAL','Dallas Love Field',32.8471,-96.8518],
+ ['KADS','Addison',32.9686,-96.8364],
+ ['KFTW','Fort Worth Meacham',32.8198,-97.3624],
+ ['KAFW','Fort Worth Alliance',32.9876,-97.3188],
+ ['KGKY','Arlington Muni',32.6639,-97.0943],
+ ['KTKI','McKinney National',33.1778,-96.5905],
+ ['KAMA','Amarillo Rick Husband',35.2194,-101.7059],
+ ['KMAF','Midland Intl',31.9425,-102.2019],
+ ['KABI','Abilene Regional',32.4113,-99.6819],
+ ['KAUS','Austin-Bergstrom',30.1975,-97.6664],
+ ['KSAT','San Antonio Intl',29.5337,-98.4698],
+ ['KELP','El Paso Intl',31.8072,-106.3776],
+ ['CUSTOM','Custom coordinates…',null,null],
+];
+const $=id=>document.getElementById(id);
+let mode='text', dxfStrokes=null, map, shapeLayer=null, tileFailed=false;
+
+function currentStrokes(){
+  if(mode==='dxf'&&dxfStrokes&&dxfStrokes.length)return dxfStrokes;
+  return textToStrokes($('txt').value||'A');
+}
+function anchor(){
+  const v=$('apt').value;
+  let lat,lon;
+  if(v==='CUSTOM'){lat=parseFloat($('lat').value)||0;lon=parseFloat($('lon').value)||0;}
+  else{const a=AIRPORTS.find(a=>a[0]===v);lat=a[2];lon=a[3];}
+  window._base={lat,lon,id:v};
+  const d=parseFloat($('offd').value)||0;
+  const b=(parseFloat($('offb').value)||0)*Math.PI/180;
+  if(d>0){
+    lat+=d*Math.cos(b)/60;                        // north component
+    lon+=d*Math.sin(b)/(60*Math.cos(lat*Math.PI/180)); // east component
+  }
+  return {lat,lon};
+}
+
+function recompute(){
+  const strokes=orderStrokes(currentStrokes());
+  let pts=flatten(strokes);
+  if(pts.length<2)return;
+  // normalize scale to width=1 so RDP epsilon is unit-relative
+  const m0=shapeMetrics(pts);
+  pts=pts.map(p=>({x:(p.x-m0.minx)/m0.w,y:(p.y-m0.miny)/m0.w,transit:p.transit}));
+  pts=simplify(pts,parseInt($('maxw').value,10));
+
+  const m=shapeMetrics(pts);
+  const lenRatio=m.len/m.w;               // path length per unit of width
+  const free=document.querySelector('input[name=free]:checked').value;
+  let size=parseFloat($('size').value)||1,
+      spd=parseFloat($('speed').value)||100,
+      dur=parseFloat($('dur').value)||60;
+  if(free==='size'){ size=spd*(dur/60)/lenRatio; $('size').value=size.toFixed(2);}
+  else if(free==='speed'){ spd=size*lenRatio/(dur/60); $('speed').value=spd.toFixed(0);}
+  else { dur=size*lenRatio/spd*60; $('dur').value=dur.toFixed(0);}
+  // lock styling
+  document.querySelectorAll('.solve .unit').forEach(u=>u.parentElement===u.parentElement&&u.classList.remove('locked'));
+  ['size','speed','dur'].forEach(id=>$(id).parentElement.classList.toggle('locked',
+      (free==='size'&&id==='size')||(free==='speed'&&id==='speed')||(free==='dur'&&id==='dur')));
+
+  const a=anchor();
+  const geo=toGeo(pts,a.lat,a.lon,size,parseFloat($('rot').value)||0,$('amode').value);
+
+  // stats
+  let dist=0; for(let k=1;k<geo.length;k++)dist+=geoDistNm(geo[k-1],geo[k]);
+  $('sDist').textContent=dist.toFixed(1)+' nm';
+  $('sGs').textContent=spd.toFixed(0)+' kt';
+  const ete=dist/spd*60;
+  $('sEte').textContent=(ete>=60?Math.floor(ete/60)+'+'+String(Math.round(ete%60)).padStart(2,'0'):Math.round(ete)+' min');
+  $('sWpt').textContent=geo.length;
+  $('fplwarn').style.display=geo.length>99?'block':'none';
+
+  drawMap(geo);
+  window._geo=geo;                        // for export
+  return geo;
+}
+
+function drawMap(geo){
+  if(shapeLayer)shapeLayer.remove();
+  shapeLayer=L.layerGroup();
+  let seg=[],segs=[];
+  geo.forEach(p=>{
+    if(p.transit&&seg.length){segs.push({t:false,pts:seg});
+      segs.push({t:true,pts:[seg[seg.length-1],[p.lat,p.lon]]});seg=[[p.lat,p.lon]];}
+    else seg.push([p.lat,p.lon]);
+  });
+  if(seg.length)segs.push({t:false,pts:seg});
+  segs.forEach(s=>{
+    L.polyline(s.pts,{color:s.t?'#f0b543':'#5fd97e',weight:s.t?2:3,
+      dashArray:s.t?'6 7':null,opacity:s.t?0.85:1}).addTo(shapeLayer);
+  });
+  const st=geo[0],en=geo[geo.length-1];
+  const b=window._base;
+  if(b&&b.id!=='CUSTOM'){
+    L.circleMarker([b.lat,b.lon],{radius:5,color:'#8ca0b3',fillColor:'#12181f',fillOpacity:1,weight:2})
+      .bindTooltip(b.id).addTo(shapeLayer);
+    const dNm=geoDistNm({lat:b.lat,lon:b.lon},{lat:st.lat,lon:st.lon});
+    if(dNm>0.05)
+      L.polyline([[b.lat,b.lon],[st.lat,st.lon]],
+        {color:'#8ca0b3',weight:1.5,dashArray:'2 6',opacity:0.8}).addTo(shapeLayer);
+  }
+  L.circleMarker([st.lat,st.lon],{radius:6,color:'#5fd97e',fillColor:'#12181f',fillOpacity:1,weight:2}).bindTooltip('START').addTo(shapeLayer);
+  L.circleMarker([en.lat,en.lon],{radius:6,color:'#ef6a5a',fillColor:'#12181f',fillOpacity:1,weight:2}).bindTooltip('END').addTo(shapeLayer);
+  shapeLayer.addTo(map);
+  const bpts=geo.map(p=>[p.lat,p.lon]);
+  if(b&&b.id!=='CUSTOM')bpts.push([b.lat,b.lon]);
+  map.fitBounds(L.latLngBounds(bpts).pad(0.25));
+}
+
+/* ---------- init ---------- */
+map=L.map('map',{zoomControl:true,attributionControl:true});
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:15, attribution:'&copy; OpenStreetMap contributors'
+}).on('tileerror',()=>{ if(!tileFailed){tileFailed=true;$('tilenote').style.display='block';} })
+  .addTo(map);
+map.setView([33.66,-101.82],9);
+
+AIRPORTS.forEach(a=>{
+  const o=document.createElement('option');
+  o.value=a[0];o.textContent=a[0]==='CUSTOM'?a[1]:`${a[0]} — ${a[1]}`;
+  $('apt').appendChild(o);
+});
+$('apt').addEventListener('change',()=>{ $('customLL').style.display=$('apt').value==='CUSTOM'?'flex':'none'; recompute(); });
+
+$('tabText').onclick=()=>{mode='text';$('tabText').classList.add('on');$('tabDxf').classList.remove('on');$('paneText').style.display='block';$('paneDxf').style.display='none';recompute();};
+$('tabDxf').onclick=()=>{mode='dxf';$('tabDxf').classList.add('on');$('tabText').classList.remove('on');$('paneDxf').style.display='block';$('paneText').style.display='none';recompute();};
+
+const drop=$('drop');
+drop.onclick=()=>$('file').click();
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hover');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hover');}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)loadDxf(f);});
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(f)loadDxf(f);});
+function loadDxf(f){
+  f.text().then(t=>{
+    const s=parseDxf(t);
+    if(!s.length){$('dxfinfo').textContent='No drawable entities found — is this a DXF with LINE/LWPOLYLINE/ARC/CIRCLE/SPLINE geometry?';return;}
+    dxfStrokes=s;
+    $('dxfinfo').textContent=`Loaded ${f.name}: ${s.length} entities.`;
+    recompute();
+  });
+}
+
+['txt','size','speed','dur','rot','lat','lon','amode','offd','offb'].forEach(id=>$(id).addEventListener('input',recompute));
+document.querySelectorAll('input[name=free]').forEach(r=>r.addEventListener('change',recompute));
+$('maxw').addEventListener('input',()=>{$('maxwv').textContent=$('maxw').value;recompute();});
+
+$('expGpx').onclick=()=>{ if(window._geo)download('groundtrace.gpx','application/gpx+xml',makeGpx(window._geo,'GroundTrace '+($('txt').value||'shape'))); };
+$('expFpl').onclick=()=>{ if(window._geo)download('groundtrace.fpl','application/xml',makeFpl(window._geo,'GROUNDTRACE')); };
+
+recompute();
+</script>
+</body>
+</html>
